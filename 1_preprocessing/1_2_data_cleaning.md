@@ -1,27 +1,25 @@
 ## Data Cleaning Workflow
 
-
 **Pragmatic order in a DS project:**
 
 ```
 Load Data
- └─ Pre-Split Data Cleaning                  
+ └─ Pre-Split Data Cleaning
      └─ Train-Test Split
          └─ EDA
              └─ Post-Split Data Cleaning
                  └─ Model Training
 ```
 
-
 ```python
-#Imports
+# ── 0. Imports ────────────────────────────────────────────────
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.compose import ColumnTransformer
 
-# ── 1. Load Data ──────────────────────────────────────────────
-df = pd.read_csv("data.csv")
-df.head()
+# ── 1. Load Data (see 1_1_fetch_data.md) ─────────────────────
 
 # ══ PRE-SPLIT: Structural Fixes (no leakage risk) ════════════
 
@@ -35,16 +33,20 @@ df = df.rename(columns={
 })
 
 # ── 4. Fix Dtypes ─────────────────────────────────────────────
-df["date_feature"]    = pd.to_datetime(df["date_feature"])
-df["int_feature"]     = df["int_feature"].astype(int)
-df["float_feature"]   = df["float_feature"].astype(float)
+df["date_feature"]  = pd.to_datetime(df["date_feature"])
+df["int_feature"]   = df["int_feature"].astype(int)
+df["float_feature"] = df["float_feature"].astype(float)
 
 # Nullable integer (preserves NaN before imputation)
 df["int_feature"] = pd.array(df["int_feature"], dtype=pd.Int64Dtype())
 
-# ── 5. Drop Structural Duplicates & Useless Columns ──────────
+# ── 5. Drop & Filter ──────────────────────────────────────────
 df = df.drop_duplicates()
 df = df.drop(columns=["id", "irrelevant_col"])  # no predictive value
+
+df = df[df["feature"] == "value"]               # filter by value
+df = df.dropna(subset=["feature"])              # drop rows with NaN in key column
+df = df.reset_index(drop=True)
 
 # ── 6. Train-Test Split ───────────────────────────────────────
 X = df.drop(columns=["target"])
@@ -54,7 +56,7 @@ X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
 )
 
-# ── → EDA here (see eda_workflow.md) ─────────────────────────
+# ── → EDA here (see 1_3_EDA.md) ──────────────────────────────
 
 # ══ POST-SPLIT: Fit on Train, Transform Both ══════════════════
 
@@ -85,9 +87,12 @@ X_test  = pd.get_dummies(X_test,  columns=["nominal_feature"], drop_first=True)
 X_test = X_test.reindex(columns=X_train.columns, fill_value=0)
 
 # ── 9. Scaling (optional — required for distance-based models) ─
-from sklearn.preprocessing import StandardScaler
+col_scale = X_train.select_dtypes(include="number").columns.tolist()
 
-scaler = StandardScaler()
-X_train[["num_feature"]] = scaler.fit_transform(X_train[["num_feature"]])
-X_test[["num_feature"]]  = scaler.transform(X_test[["num_feature"]])
+ct = ColumnTransformer(
+    [("scaling", StandardScaler(), col_scale)], remainder="passthrough"
+)
+
+X_train = ct.fit_transform(X_train)
+X_test  = ct.transform(X_test)
 ```
